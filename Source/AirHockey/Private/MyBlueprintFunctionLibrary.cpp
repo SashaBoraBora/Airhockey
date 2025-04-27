@@ -56,73 +56,109 @@ void UMyBlueprintFunctionLibrary::ProcessTouchInputs(
 		return;
 	}
 
-	TArray<FVector> Group1, Group2;
+	TArray<FVector> Group1;
+	TArray<FVector> Group2;
 	float DistanceThreshold = 50.0f;
 
-	// Group points
+	// Improved grouping:
 	for (const FVector& Touch : TouchPoints)
 	{
-		bool bCloseToGroup1 = false;
+		bool bAssigned = false;
+
+		// Try to assign to Group1
 		for (const FVector& P : Group1)
 		{
 			if (FVector::Dist(P, Touch) < DistanceThreshold)
 			{
-				bCloseToGroup1 = true;
+				Group1.Add(Touch);
+				bAssigned = true;
 				break;
 			}
 		}
 
-		if (bCloseToGroup1 || Group1.Num() == 0)
+		// Try Group2 if not assigned
+		if (!bAssigned)
 		{
-			Group1.Add(Touch);
+			for (const FVector& P : Group2)
+			{
+				if (FVector::Dist(P, Touch) < DistanceThreshold)
+				{
+					Group2.Add(Touch);
+					bAssigned = true;
+					break;
+				}
+			}
 		}
-		else
+
+		// Start a new group if not assigned
+		if (!bAssigned)
 		{
-			Group2.Add(Touch);
+			if (Group1.Num() == 0)
+			{
+				Group1.Add(Touch);
+			}
+			else if (Group2.Num() == 0)
+			{
+				Group2.Add(Touch);
+			}
+			else
+			{
+				// Too many groups!
+				UE_LOG(LogTemp, Warning, TEXT("More than two paddle groups detected."));
+			}
 		}
 	}
 
+	// Find circumcenters
 	FVector MarkerA = FVector::ZeroVector;
 	FVector MarkerB = FVector::ZeroVector;
 	bool bAValid = false;
 	bool bBValid = false;
 
-	// Compute for Group1
 	if (Group1.Num() == 3)
 	{
 		UMyBlueprintFunctionLibrary::CalculateCircumcenter(Group1[0], Group1[1], Group1[2], MarkerA);
 		bAValid = true;
 	}
-	// Compute for Group2
 	if (Group2.Num() == 3)
 	{
 		UMyBlueprintFunctionLibrary::CalculateCircumcenter(Group2[0], Group2[1], Group2[2], MarkerB);
 		bBValid = true;
 	}
 
-	// Assign based on Y axis
+	// Assign based on distance to last known
 	if (bAValid && bBValid)
 	{
-		if (MarkerA.Y >= MarkerB.Y)
+		float DistAto1 = FVector::Dist(MarkerA, LastKnownMarker1);
+		float DistAto2 = FVector::Dist(MarkerA, LastKnownMarker2);
+		float DistBto1 = FVector::Dist(MarkerB, LastKnownMarker1);
+		float DistBto2 = FVector::Dist(MarkerB, LastKnownMarker2);
+
+		if ((DistAto1 + DistBto2) <= (DistAto2 + DistBto1))
 		{
+			// A matches Marker1, B matches Marker2
 			OutMarker1 = MarkerA;
 			OutMarker2 = MarkerB;
-			LastKnownMarker1 = MarkerA;
-			LastKnownMarker2 = MarkerB;
 		}
 		else
 		{
+			// Swap
 			OutMarker1 = MarkerB;
 			OutMarker2 = MarkerA;
-			LastKnownMarker1 = MarkerB;
-			LastKnownMarker2 = MarkerA;
 		}
+
+		LastKnownMarker1 = OutMarker1;
+		LastKnownMarker2 = OutMarker2;
+
 		bIsMarker1Tracked = true;
 		bIsMarker2Tracked = true;
 	}
 	else if (bAValid)
 	{
-		if (MarkerA.Y >= 0)
+		float DistToMarker1 = FVector::Dist(MarkerA, LastKnownMarker1);
+		float DistToMarker2 = FVector::Dist(MarkerA, LastKnownMarker2);
+
+		if (DistToMarker1 <= DistToMarker2)
 		{
 			OutMarker1 = MarkerA;
 			LastKnownMarker1 = MarkerA;
@@ -137,7 +173,10 @@ void UMyBlueprintFunctionLibrary::ProcessTouchInputs(
 	}
 	else if (bBValid)
 	{
-		if (MarkerB.Y >= 0)
+		float DistToMarker1 = FVector::Dist(MarkerB, LastKnownMarker1);
+		float DistToMarker2 = FVector::Dist(MarkerB, LastKnownMarker2);
+
+		if (DistToMarker1 <= DistToMarker2)
 		{
 			OutMarker1 = MarkerB;
 			LastKnownMarker1 = MarkerB;
